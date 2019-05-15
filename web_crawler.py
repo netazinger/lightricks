@@ -4,7 +4,6 @@ import csv
 import urllib2
 import datetime
 import cachetools.func
-import tldextract
 from BeautifulSoup import BeautifulSoup
 from collections import namedtuple, OrderedDict
 

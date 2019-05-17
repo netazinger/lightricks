@@ -6,8 +6,9 @@ from web_crawler import WebCrawler
 @click.argument("url", type=click.STRING)
 @click.argument('depth',  type=click.INT, default=1)
 @click.option('output_dir', '--output-dir', default=None, type=click.STRING)
-def main(url, depth, output_dir):
-    WebCrawler(url, depth=depth, output_dir=output_dir).run()
+@click.option('us_cache', '--us-cache', default=True, type=click.BOOL)
+def main(url, depth, output_dir, us_cache):
+    WebCrawler(url, depth=depth, output_dir=output_dir, us_cache=us_cache).run()
 
 if __name__ == "__main__":
     main()

@@ -9,5 +9,5 @@ python version 2.7.*
 
 # How to run
 ```$xslt
-python main.py <your domain> <depth> <output path - optional>
+python main.py <your domain> <depth> [<output_path>] [us_cache] 
 ```

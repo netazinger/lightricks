@@ -12,6 +12,8 @@ from urlparse import urlparse
 UrlResult = namedtuple("UrlResult", ["depth", "ratio"])
 
 class WebCrawler(object):
+    """ lightricks Crawler """
+
     ALLOWED_MIME_TYPE = {"text", "html"}
     DEFAULT_DIR_PATH = "/tmp/lightricks_Web_Crawler"
     WEB_PAGE_DATA_FILE_FORMAT = "{output_dir}/{url}"
@@ -30,10 +32,26 @@ class WebCrawler(object):
 
     @classmethod
     @cachetools.func.lru_cache()
-    def extract_domin_from_url(cls, url):
+    def extract_domain_from_url(cls, url):
+        """
+        extract the domain name  from a givven url
+        :param url: a web page url
+        :type url: str
+        :return: the domain
+        :rtype: str
+        """
         return urlparse(url).netloc
 
     def should_process_url(self, url, depth):
+        """
+        check if url should bbe processed bad on the mime and the depth
+        :param url: a web page url
+        :type url: str
+        :param depth: the depth of the url from the original url
+        :type depth: int
+        :return: where or not we should process this uurl
+        :rtype: bool
+        """
         if self.max_depth < depth:
             return False
 
@@ -46,12 +64,27 @@ class WebCrawler(object):
 
     @classmethod
     def simplify_url(cls, url):
+        """
+        convert the url to a file name that we can save on our fs
+        this can be done much better
+        :param url: a web page url
+        :type url: str
+        :return: a save able file name that origined from url
+        :rtype: str
+        """
         for pattren_to_remove in ["http://", "https://"]:
             url = url.replace(pattren_to_remove, "")
         return url.replace("/", "_")
 
     @cachetools.func.lru_cache()
     def process_url(self, url):
+        """
+        process a url
+        :param url: a web page url
+        :type url: str
+        :return: a tuple containing a list to all the url's child links abd the "same domain" ratio
+        :rtype: tuple(list, float)
+        """
         simplify_url = self.simplify_url(url)
         web_page_data_file_path = self.WEB_PAGE_DATA_FILE_FORMAT.format(output_dir=self.output_dir, url=simplify_url)
         web_page_metadata_file_path = WebPageMetadata.WEB_PAGE_METADATA_FILE_FORMAT.format(web_page_data_file=web_page_data_file_path)
@@ -64,18 +97,18 @@ class WebCrawler(object):
                 return web_page_metadata.url_links, ratio
             else:
 
-                html_page = open(web_page_data_file_path, "r").read()
+                web_page = open(web_page_data_file_path, "r").read()
         else:
-            html_page = urllib2.urlopen(url)
+            web_page = urllib2.urlopen(url)
 
         # save page content locally
-        open(web_page_data_file_path, "w").write(html_page.read())
+        open(web_page_data_file_path, "w").write(web_page.read())
 
         # read the page from the local file
-        html_page = urllib2.urlopen("file://" + web_page_data_file_path)
+        web_page = urllib2.urlopen("file://" + web_page_data_file_path)
 
         # process a page
-        url_links = self.get_links_in_page(html_page)
+        url_links = self.get_links_in_page(web_page)
         WebPageMetadata(url_links).write_metadata_to_file(web_page_metadata_file_path)
         ratio = self.calc_ratio(url, url_links)
         return url_links, ratio
@@ -93,6 +126,8 @@ class WebCrawler(object):
             self.processed_url_to_url_result[url] = UrlResult(depth=depth, ratio=ratio)
 
             depth += 1
+
+            # add all necessary "child" links to the queue
             if depth <= self.max_depth:
                 for url_link in url_links:
                     if url_link not in self.processed_url_to_url_result:
@@ -103,6 +138,9 @@ class WebCrawler(object):
         self.build_output_report()
 
     def build_output_report(self):
+        """
+        build the out pu report of the program
+        """
         with open("lightricks_Web_Crawler_%s.tsv" % datetime.datetime.now(), 'wt') as out_file:
             tsv_writer = csv.writer(out_file, delimiter='\t')
             tsv_writer.writerow(['url', 'depth', "ratio"])
@@ -110,8 +148,13 @@ class WebCrawler(object):
                 tsv_writer.writerow([url, url_result.depth, url_result.ratio])
 
     @classmethod
-    def get_links_in_page(cls, html_page):
-        soup = BeautifulSoup(html_page)
+    def get_links_in_page(cls, web_page):
+        """
+        get all child static links of a givven page
+        :return: list of all the child links
+        :rtype: list[str]
+        """
+        soup = BeautifulSoup(web_page)
         page_links = set()
         for link in soup.findAll('a', attrs={'href': re.compile("^http://")}):
             page_links.add(link.get('href'))
@@ -119,7 +162,16 @@ class WebCrawler(object):
 
     @classmethod
     def calc_ratio(cls, url, url_links):
-        orig_domain = cls.extract_domin_from_url(url)
+        """
+        get the "same domain" ratio of the url links
+        :param url: a web page url
+        :type url: str
+        :param url_links: list of all the child links
+        :type url_links: list[str]
+        :return: "same domain" ratio
+        :rtype: float
+        """
+        orig_domain = cls.extract_domain_from_url(url)
 
         return len({domain_link for domain_link in url_links
-                    if cls.extract_domin_from_url(domain_link) == orig_domain}) / float(len(url_links))
+                    if cls.extract_domain_from_url(domain_link) == orig_domain}) / float(len(url_links))

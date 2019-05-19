@@ -52,10 +52,10 @@ class WebCrawler(object):
         :return: where or not we should process this uurl
         :rtype: bool
         """
-        if self.max_depth < depth:
+        if self.max_depth < depth or not url:
             return False
 
-        file_mine = os.path.splitext(url)[0].replace(".", "")
+        file_mine = os.path.splitext(url)[-1].replace(".", "")
         if file_mine not in self.ALLOWED_MIME_TYPE:
             print "does not support file mime of type %s, we support %s" % (file_mine, self.ALLOWED_MIME_TYPE)
             return False
@@ -121,7 +121,6 @@ class WebCrawler(object):
                 continue
 
             print "processing %s with depth: %s" % (url, depth)
-
             url_links, ratio = self.process_url(url)
             self.processed_url_to_url_result[url] = UrlResult(depth=depth, ratio=ratio)
 

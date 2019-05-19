@@ -134,17 +134,19 @@ class WebCrawler(object):
                     else:
                         print "url %s was already processed" % url_link
 
-        self.build_output_report()
+        return self.build_output_report()
 
     def build_output_report(self):
         """
         build the out pu report of the program
         """
-        with open("lightricks_Web_Crawler_%s.tsv" % datetime.datetime.now(), 'wt') as out_file:
+        output_file = "lightricks_Web_Crawler_%s.tsv" % datetime.datetime.now()
+        with open(output_file, 'wt') as out_file:
             tsv_writer = csv.writer(out_file, delimiter='\t')
             tsv_writer.writerow(['url', 'depth', "ratio"])
             for url, url_result in self.processed_url_to_url_result.iteritems():
                 tsv_writer.writerow([url, url_result.depth, url_result.ratio])
+        return output_file
 
     @classmethod
     def get_links_in_page(cls, web_page):

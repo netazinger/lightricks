@@ -8,7 +8,8 @@ from web_crawler import WebCrawler
 @click.option('output_dir', '--output-dir', default=None, type=click.STRING)
 @click.option('us_cache', '--us-cache', default=True, type=click.BOOL)
 def main(url, depth, output_dir, us_cache):
-    WebCrawler(url, depth=depth, output_dir=output_dir, us_cache=us_cache).run()
+    result = WebCrawler(url, depth=depth, output_dir=output_dir, us_cache=us_cache).run()
+    print "result file: %s" % result
 
 if __name__ == "__main__":
     try:

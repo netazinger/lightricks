@@ -174,5 +174,8 @@ class WebCrawler(object):
         """
         orig_domain = cls.extract_domain_from_url(url)
 
-        return len({domain_link for domain_link in url_links
-                    if cls.extract_domain_from_url(domain_link) == orig_domain}) / float(len(url_links))
+        if url_links:
+            return len({domain_link for domain_link in url_links
+                        if cls.extract_domain_from_url(domain_link) == orig_domain}) / float(len(url_links))
+        else:
+            return 0

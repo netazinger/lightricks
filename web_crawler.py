@@ -2,14 +2,26 @@ import re
 import os
 import csv
 import urllib2
-import datetime
+import unicodedata
+from time import time
 import cachetools.func
 from BeautifulSoup import BeautifulSoup
 from collections import namedtuple, OrderedDict
 
 from web_page_metadata import WebPageMetadata
 from urlparse import urlparse
-UrlResult = namedtuple("UrlResult", ["depth", "ratio"])
+from url_status import UrlStatus
+UrlResult = namedtuple("UrlResult", ["depth", "ratio", "status"])
+
+class FailedProcessFile(Exception):
+    UNKNOWN = -1
+    EXTRACT_CHAILD_LINKS = -2
+    def __init__(self, msg, error_code=UNKNOWN):
+        self.msg = msg
+        self.error_code = error_code
+
+    def __str__(self):
+        return "%s. Error code: %s" % (self.msg, self.error_code)
 
 class WebCrawler(object):
     """ lightricks Crawler """
@@ -19,7 +31,7 @@ class WebCrawler(object):
     WEB_PAGE_DATA_FILE_FORMAT = "{output_dir}/{url}"
 
     def __init__(self, url, depth=1, output_dir=None, us_cache=True):
-        self.processed_url_to_url_result = OrderedDict()
+        self.processed_url_to_url_status = OrderedDict()
         self.max_depth = depth
         self.urls_queue = [(url, 1)]
         self.output_dir = output_dir or self.DEFAULT_DIR_PATH
@@ -76,6 +88,19 @@ class WebCrawler(object):
             url = url.replace(pattren_to_remove, "")
         return url.replace("/", "_")
 
+
+    @classmethod
+    def slugify(cls, value):
+        """
+        Normalizes string, converts to lowercase, removes non-alpha characters,
+        and converts spaces to hyphens.
+        """
+        value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore')
+        value = unicode(re.sub('[^\w\s-]', '', value).strip().lower())
+        value = unicode(re.sub('[-\s]+', '-', value))
+        return value
+
+
     @cachetools.func.lru_cache()
     def process_url(self, url):
         """
@@ -85,8 +110,8 @@ class WebCrawler(object):
         :return: a tuple containing a list to all the url's child links abd the "same domain" ratio
         :rtype: tuple(list, float)
         """
-        simplify_url = self.simplify_url(url)
-        web_page_data_file_path = self.WEB_PAGE_DATA_FILE_FORMAT.format(output_dir=self.output_dir, url=simplify_url)
+        slugify_url = self.slugify(url)
+        web_page_data_file_path = self.WEB_PAGE_DATA_FILE_FORMAT.format(output_dir=self.output_dir, url=slugify_url)
         web_page_metadata_file_path = WebPageMetadata.WEB_PAGE_METADATA_FILE_FORMAT.format(web_page_data_file=web_page_data_file_path)
 
         # check if url was processed in the past (based on file system)
@@ -96,10 +121,12 @@ class WebCrawler(object):
                 ratio = self.calc_ratio(url, web_page_metadata.url_links)
                 return web_page_metadata.url_links, ratio
             else:
-
                 web_page = open(web_page_data_file_path, "r").read()
         else:
-            web_page = urllib2.urlopen(url)
+            try:
+                web_page = urllib2.urlopen(url)
+            except urllib2.HTTPError as e:
+                raise FailedProcessFile( "Filed to download %s" % url, e.code)
 
         # save page content locally
         open(web_page_data_file_path, "w").write(web_page.read())
@@ -109,6 +136,9 @@ class WebCrawler(object):
 
         # process a page
         url_links = self.get_links_in_page(web_page)
+        if url_links is None:
+            os.remove(web_page_data_file_path)
+            raise FailedProcessFile("failed extracting links", FailedProcessFile.EXTRACT_CHAILD_LINKS)
         WebPageMetadata(url_links).write_metadata_to_file(web_page_metadata_file_path)
         ratio = self.calc_ratio(url, url_links)
         return url_links, ratio
@@ -121,15 +151,25 @@ class WebCrawler(object):
                 continue
 
             print "processing %s with depth: %s" % (url, depth)
-            url_links, ratio = self.process_url(url)
-            self.processed_url_to_url_result[url] = UrlResult(depth=depth, ratio=ratio)
+            url_status = UrlStatus(url, depth)
+            url_links = []
+
+            try:
+                url_links, ratio = self.process_url(url)
+                url_status.status = UrlStatus.SUCCESS
+                url_status.ratio = ratio
+            except FailedProcessFile as e:
+                print str(e)
+                url_status.error = e
+                url_status.status = UrlStatus.FAILD
+            self.processed_url_to_url_status[url] = url_status
 
             depth += 1
 
             # add all necessary "child" links to the queue
             if depth <= self.max_depth:
                 for url_link in url_links:
-                    if url_link not in self.processed_url_to_url_result:
+                    if url_link not in self.processed_url_to_url_status:
                         self.urls_queue.append((url_link, depth))
                     else:
                         print "url %s was already processed" % url_link
@@ -140,12 +180,12 @@ class WebCrawler(object):
         """
         build the out pu report of the program
         """
-        output_file = "lightricks_Web_Crawler_%s.tsv" % datetime.datetime.now()
+        output_file = "lightricks_Web_Crawler_%s.tsv" % time()
         with open(output_file, 'wt') as out_file:
-            tsv_writer = csv.writer(out_file, delimiter='\t')
-            tsv_writer.writerow(['url', 'depth', "ratio"])
-            for url, url_result in self.processed_url_to_url_result.iteritems():
-                tsv_writer.writerow([url, url_result.depth, url_result.ratio])
+            tsv_writer = csv.DictWriter(out_file, delimiter='\t', fieldnames=['url', 'depth', "ratio", "status", "error"])
+            tsv_writer.writeheader()
+            for url, url_status in self.processed_url_to_url_status.iteritems():
+                tsv_writer.writerow(url_status.to_dict())
         return output_file
 
     @classmethod
@@ -155,10 +195,13 @@ class WebCrawler(object):
         :return: list of all the child links
         :rtype: list[str]
         """
-        soup = BeautifulSoup(web_page)
-        page_links = set()
-        for link in soup.findAll('a', attrs={'href': re.compile("^http://")}):
-            page_links.add(link.get('href'))
+        try:
+            soup = BeautifulSoup(web_page)
+            page_links = set()
+            for link in soup.findAll('a', attrs={'href': re.compile("^http://")}):
+                page_links.add(link.get('href'))
+        except Exception as e:
+            return None
         return page_links
 
     @classmethod
